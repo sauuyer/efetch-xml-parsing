@@ -1,0 +1,112 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+options(width = 60)
+local({
+  hook_output <- knitr::knit_hooks$get('output')
+  knitr::knit_hooks$set(output = function(x, options) {
+    options$attr.output <- c(
+      options$attr.output,
+      sprintf('style="max-height: %s;"', options$max.height)
+    )
+    hook_output(x, options)
+  })
+})
+```
+
+## Using NCBI APIs to Collect Mesh Terms of Known Articles
+
+Describe scope of script thusfar.
+
+##### These are the libraries used in this project
+```{r message = FALSE}
+library(XML)
+library(tidyverse)
+library(httr)
+library(methods)
+library(plyr)
+library(dplyr)
+library(kableExtra)
+```
+
+##### This is the API string used in this example
+
+This api string uses PMIDs to query PubMed and return the metadata for each publication in XML format. JSON format output does not currently work with this API. 
+
+For more details about this API, see NCBI eutilities, eFetch. (https://www.ncbi.nlm.nih.gov/books/NBK25499/) 
+
+Writing this api string can be automated if we are able to get all of the PMIDs from all relevant
+articles associated with our faculty members.
+
+```{r}
+api_call = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=25362052,23685480,25342659,23031829,23921886&rettype=xml"
+```
+
+##### Calling the API String and Collecting Subsiquent XML Output
+
+```{r}
+#send a request to the api over http
+request <- GET(url = api_call)
+#access the xml from the request
+xml <- content(request,as = "text", encoding = "utf-8")
+#parse the xml
+parsed_xml <- xmlParse(xml)
+#identify the root of the xml output
+rootnode <- xmlRoot(parsed_xml)
+xmlName(rootnode)
+#this generates the number of articles represented in the xml output
+xmlSize(rootnode)
+```
+
+
+##### Transforming the XML into a Dataframe (tabular data structure)
+
+```{r, warning = FALSE, messages = FALSE}
+xml_df <- ldply(xmlToList(parsed_xml), data.frame) #completes with errors: "row names were found from a short variable and have been discarded"
+xml_df <- distinct(xml_df, MedlineCitation.PMID.text, .keep_all = TRUE)
+```
+
+Number of columns in this dataframe:
+```{r}
+ncol(xml_df)
+```
+
+Columnnames in the dataframe:
+```{r, max.height='200px'}
+colnames(xml_df)
+```
+
+Cleaning the dataframe by keeping only columns related to title, abstract, mesh, keyword, and chemical structure:
+```{r}
+titleCol <- xml_df["MedlineCitation.Article.ArticleTitle"]
+abstractCol <- xml_df["MedlineCitation.Article.Abstract.AbstractText"]
+meshCols <- xml_df[227:312]
+meshCols <- meshCols %>% select(-contains("attrs"))
+keywordCols <- xml_df[313:323]
+keywordCols <- keywordCols %>% select(-contains("attrs"))
+chemicalCols <- xml_df[206:225]
+chemicalCols <- chemicalCols %>% select(-contains("attrs"))
+chemicalCols <- chemicalCols %>% select(-contains("RegistryNumber"))
+df <- cbind(titleCol, abstractCol, meshCols, keywordCols, chemicalCols)
+```
+
+Columnnames in subset of dataframe:
+```{r, max.height='200px'}
+colnames(df)
+```
+
+Sample read-out of dataframe subset:
+```{r echo = FALSE}
+#knitr::kable(df, format = "html")
+kable(df) %>%
+  kable_styling(full_width = F, bootstrap_options = c("striped", "hover", "condensed"), font_size = 8) %>%
+  row_spec(0)
+```
